@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>RGB Color Space Distance Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 350px;
+        }
+        #color-picker {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .color-input {
+            margin: 5px 0;
+        }
+        .label {
+            display: inline-block;
+            width: 120px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h2>RGB Color Space Distance</h2>
+        <p>This visualizes the 3D Cartesian distance metric used in the Figment color counter.</p>
+        <p>The spheres represent the target colors from the script. The lines show the distance from your selected color to each target.</p>
+        <p>Controls: Left-click + drag to rotate, scroll to zoom, right-click + drag to pan</p>
+    </div>
+    
+    <div id="color-picker">
+        <h3>Select a Color</h3>
+        <div class="color-input">
+            <span class="label">Color:</span>
+            <input type="color" id="custom-color" value="#ff0000">
+        </div>
+        <div class="color-input">
+            <span class="label">Target colors:</span>
+            <select id="target-select">
+                <option value="figment">Figment Colors</option>
+                <option value="primary">Primary Colors</option>
+                <option value="custom">Custom</option>
+            </select>
+        </div>
+        <div id="custom-colors" style="display: none;">
+            <div class="color-input">
+                <input type="color" class="target-color" value="#ff69b4">
+                <button class="remove-color">×</button>
+            </div>
+            <button id="add-color">+ Add Color</button>
+        </div>
+        <div class="color-input">
+            <span class="label">Show RGB Axes:</span>
+            <input type="checkbox" id="show-axes" checked>
+        </div>
+        <div class="color-input">
+            <span class="label">Show Color Space:</span>
+            <input type="checkbox" id="show-color-space" checked>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // Initialize ThreeJS
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(300, 300, 300);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        // Add OrbitControls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(200, 200, 200);
+        scene.add(directionalLight);
+        
+        // Create RGB space visualization
+        const rgbSpaceGroup = new THREE.Group();
+        scene.add(rgbSpaceGroup);
+        
+        // RGB axes
+        function createAxes() {
+            const axesGroup = new THREE.Group();
+            
+            // X-axis (R) - Red
+            const xAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(255, 0, 0)
+            ]);
+            const xAxisMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+            const xAxis = new THREE.Line(xAxisGeometry, xAxisMaterial);
+            axesGroup.add(xAxis);
+            
+            // Y-axis (G) - Green
+            const yAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 255, 0)
+            ]);
+            const yAxisMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+            const yAxis = new THREE.Line(yAxisGeometry, yAxisMaterial);
+            axesGroup.add(yAxis);
+            
+            // Z-axis (B) - Blue
+            const zAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 0, 255)
+            ]);
+            const zAxisMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 2 });
+            const zAxis = new THREE.Line(zAxisGeometry, zAxisMaterial);
+            axesGroup.add(zAxis);
+            
+            // Labels - created as sprites
+            const createLabel = (text, position, color) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 32;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = color;
+                ctx.font = '24px Arial';
+                ctx.fillText(text, 0, 24);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const material = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(material);
+                sprite.position.copy(position);
+                sprite.scale.set(32, 16, 1);
+                return sprite;
+            };
+            
+            axesGroup.add(createLabel('R', new THREE.Vector3(265, 0, 0), '#ff0000'));
+            axesGroup.add(createLabel('G', new THREE.Vector3(0, 265, 0), '#00ff00'));
+            axesGroup.add(createLabel('B', new THREE.Vector3(0, 0, 265), '#0000ff'));
+            
+            return axesGroup;
+        }
+        
+        const axesGroup = createAxes();
+        rgbSpaceGroup.add(axesGroup);
+        
+        // Create RGB color space wireframe
+        function createColorSpace() {
+            const colorSpaceGroup = new THREE.Group();
+            
+            // Create the RGB cube
+            const cubeGeometry = new THREE.BoxGeometry(255, 255, 255);
+            const edges = new THREE.EdgesGeometry(cubeGeometry);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x888888 }));
+            line.position.set(255/2, 255/2, 255/2);
+            colorSpaceGroup.add(line);
+            
+            return colorSpaceGroup;
+        }
+        
+        const colorSpaceGroup = createColorSpace();
+        rgbSpaceGroup.add(colorSpaceGroup);
+        
+        // Target colors
+        const figmentColors = {
+            'hotpink': [255, 105, 180],    // #ff69b4
+            'darkcyan': [0, 139, 139],     // #008b8b
+            'lightgray': [211, 211, 211],  // #d3d3d3
+            'blue': [0, 93, 186],          // #005DBA
+            'white': [255, 255, 255]       // #ffffff
+        };
+        
+        const primaryColors = {
+            'red': [255, 0, 0],          // #ff0000
+            'green': [0, 255, 0],        // #00ff00
+            'blue': [0, 0, 255],         // #0000ff
+            'cyan': [0, 255, 255],       // #00ffff
+            'magenta': [255, 0, 255],    // #ff00ff
+            'yellow': [255, 255, 0],     // #ffff00
+            'black': [0, 0, 0],          // #000000
+            'white': [255, 255, 255]     // #ffffff
+        };
+        
+        let targetColors = figmentColors;
+        let targetSpheres = [];
+        let distanceLines = [];
+        
+        // Create spheres for target colors
+        function createTargetSpheres(colors) {
+            // Remove existing spheres
+            targetSpheres.forEach(sphere => rgbSpaceGroup.remove(sphere));
+            targetSpheres = [];
+            
+            // Create new spheres
+            Object.entries(colors).forEach(([name, rgb]) => {
+                const sphereGeometry = new THREE.SphereGeometry(5, 32, 32);
+                const color = new THREE.Color(`rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`);
+                const sphereMaterial = new THREE.MeshPhongMaterial({ color: color });
+                const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                
+                sphere.position.set(rgb[0], rgb[1], rgb[2]);
+                sphere.userData = { 
+                    name: name, 
+                    rgb: rgb 
+                };
+                
+                rgbSpaceGroup.add(sphere);
+                targetSpheres.push(sphere);
+                
+                // Label
+                const createLabel = (text, position, color) => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 128;
+                    canvas.height = 32;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = '14px Arial';
+                    ctx.fillText(text, 0, 20);
+                    
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const material = new THREE.SpriteMaterial({ map: texture });
+                    const sprite = new THREE.Sprite(material);
+                    sprite.position.copy(position);
+                    sprite.position.y += 10;
+                    sprite.scale.set(64, 16, 1);
+                    return sprite;
+                };
+                
+                const label = createLabel(name, sphere.position.clone());
+                sphere.label = label;
+                rgbSpaceGroup.add(label);
+            });
+        }
+        
+        // Create distance lines
+        function createDistanceLines(sourceRGB) {
+            // Remove existing lines
+            distanceLines.forEach(line => rgbSpaceGroup.remove(line));
+            distanceLines = [];
+            
+            // Source point
+            const sourcePoint = new THREE.Vector3(sourceRGB[0], sourceRGB[1], sourceRGB[2]);
+            
+            // Create sphere for source color
+            const sphereGeometry = new THREE.SphereGeometry(7, 32, 32);
+            const color = new THREE.Color(`rgb(${sourceRGB[0]}, ${sourceRGB[1]}, ${sourceRGB[2]})`);
+            const sphereMaterial = new THREE.MeshPhongMaterial({ color: color });
+            const sourceSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            sourceSphere.position.copy(sourcePoint);
+            rgbSpaceGroup.add(sourceSphere);
+            distanceLines.push(sourceSphere); // Add to list so it's removed next time
+            
+            // Calculate distances and create lines
+            targetSpheres.forEach(sphere => {
+                const targetPoint = sphere.position.clone();
+                
+                // Calculate Euclidean distance (same as in the Python script)
+                const distance = Math.sqrt(
+                    Math.pow(sourceRGB[0] - sphere.userData.rgb[0], 2) +
+                    Math.pow(sourceRGB[1] - sphere.userData.rgb[1], 2) +
+                    Math.pow(sourceRGB[2] - sphere.userData.rgb[2], 2)
+                );
+                
+                // Create line
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+                    sourcePoint, targetPoint
+                ]);
+                
+                // Color line based on distance (green->yellow->red)
+                let lineColor;
+                const normalizedDist = Math.min(distance / 441.7, 1); // 441.7 is max possible dist in RGB cube
+                if (normalizedDist < 0.5) {
+                    // Green to Yellow
+                    const t = normalizedDist * 2;
+                    lineColor = new THREE.Color(t, 1, 0);
+                } else {
+                    // Yellow to Red
+                    const t = (normalizedDist - 0.5) * 2;
+                    lineColor = new THREE.Color(1, 1 - t, 0);
+                }
+                
+                const lineMaterial = new THREE.LineBasicMaterial({ 
+                    color: lineColor,
+                    linewidth: 2 
+                });
+                const line = new THREE.Line(lineGeometry, lineMaterial);
+                rgbSpaceGroup.add(line);
+                distanceLines.push(line);
+                
+                // Add distance label
+                const midPoint = new THREE.Vector3().lerpVectors(sourcePoint, targetPoint, 0.5);
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 32;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = "#ffffff";
+                ctx.font = '12px Arial';
+                ctx.fillText(distance.toFixed(1), 0, 12);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const material = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(material);
+                sprite.position.copy(midPoint);
+                sprite.scale.set(32, 16, 1);
+                rgbSpaceGroup.add(sprite);
+                distanceLines.push(sprite);
+            });
+        }
+        
+        // Initial setup
+        createTargetSpheres(targetColors);
+        
+        // Custom color input
+        const colorInput = document.getElementById('custom-color');
+        let currentRGB = hexToRgb(colorInput.value);
+        createDistanceLines(currentRGB);
+        
+        colorInput.addEventListener('input', function() {
+            currentRGB = hexToRgb(this.value);
+            createDistanceLines(currentRGB);
+        });
+        
+        // Target colors selection
+        const targetSelect = document.getElementById('target-select');
+        targetSelect.addEventListener('change', function() {
+            if (this.value === 'figment') {
+                targetColors = figmentColors;
+                document.getElementById('custom-colors').style.display = 'none';
+            } else if (this.value === 'primary') {
+                targetColors = primaryColors;
+                document.getElementById('custom-colors').style.display = 'none';
+            } else if (this.value === 'custom') {
+                targetColors = getCustomColors();
+                document.getElementById('custom-colors').style.display = 'block';
+            }
+            
+            createTargetSpheres(targetColors);
+            createDistanceLines(currentRGB);
+        });
+        
+        // Axes visibility
+        const showAxesCheckbox = document.getElementById('show-axes');
+        showAxesCheckbox.addEventListener('change', function() {
+            axesGroup.visible = this.checked;
+        });
+        
+        // Color space visibility
+        const showColorSpaceCheckbox = document.getElementById('show-color-space');
+        showColorSpaceCheckbox.addEventListener('change', function() {
+            colorSpaceGroup.visible = this.checked;
+        });
+        
+        // Custom colors functionality
+        function getCustomColors() {
+            const colors = {};
+            document.querySelectorAll('.target-color').forEach((input, index) => {
+                colors[`Color ${index + 1}`] = hexToRgb(input.value);
+            });
+            return colors;
+        }
+        
+        document.getElementById('add-color').addEventListener('click', function() {
+            const container = document.getElementById('custom-colors');
+            const colorDiv = document.createElement('div');
+            colorDiv.className = 'color-input';
+            
+            const colorInput = document.createElement('input');
+            colorInput.type = 'color';
+            colorInput.className = 'target-color';
+            colorInput.value = '#' + Math.floor(Math.random()*16777215).toString(16);
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-color';
+            removeBtn.textContent = '×';
+            removeBtn.addEventListener('click', function() {
+                colorDiv.remove();
+                targetColors = getCustomColors();
+                createTargetSpheres(targetColors);
+                createDistanceLines(currentRGB);
+            });
+            
+            colorInput.addEventListener('input', function() {
+                targetColors = getCustomColors();
+                createTargetSpheres(targetColors);
+                createDistanceLines(currentRGB);
+            });
+            
+            colorDiv.appendChild(colorInput);
+            colorDiv.appendChild(removeBtn);
+            container.insertBefore(colorDiv, this);
+            
+            targetColors = getCustomColors();
+            createTargetSpheres(targetColors);
+            createDistanceLines(currentRGB);
+        });
+        
+        // Helper functions
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return [
+                parseInt(result[1], 16),
+                parseInt(result[2], 16),
+                parseInt(result[3], 16)
+            ];
+        }
+        
+        // Window resize handling
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        animate();
+    </script>
+</body>
+</html>

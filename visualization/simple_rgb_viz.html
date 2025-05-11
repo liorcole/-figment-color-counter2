@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>RGB Color Space Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 350px;
+            z-index: 100;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            width: 250px;
+            z-index: 100;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .control-row label {
+            flex: 1;
+        }
+        .slider-value {
+            width: 60px;
+            text-align: right;
+            margin-left: 10px;
+        }
+        button {
+            padding: 5px 10px;
+            margin-right: 5px;
+            cursor: pointer;
+        }
+        select, input[type=range] {
+            width: 100%;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 1000;
+        }
+        .color-input {
+            margin: 5px 0;
+        }
+        .label {
+            display: inline-block;
+            width: 100px;
+        }
+        #closest-color {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: rgba(255,255,255,0.1);
+        }
+        .winning-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h2>RGB Color Space Visualization</h2>
+        <p>This visualizes the entire RGB color space as a 3D point cloud.</p>
+        <p>Each point represents a color at position (R,G,B) and is colored accordingly.</p>
+        <p>Controls: Left-click + drag to rotate, scroll to zoom, right-click + drag to pan</p>
+    </div>
+    
+    <div id="controls">
+        <h3>Visualization Controls</h3>
+        
+        <div class="control-group">
+            <label class="control-label">Sampling Density</label>
+            <div class="control-row">
+                <input type="range" id="sampling-density" min="4" max="64" value="16" step="4">
+                <span id="density-value" class="slider-value">16</span>
+            </div>
+            <small>Higher values = finer sampling, but slower rendering</small>
+        </div>
+        
+        <div class="control-group">
+            <label class="control-label">Point Size</label>
+            <div class="control-row">
+                <input type="range" id="point-size" min="1" max="20" value="8" step="1">
+                <span id="size-value" class="slider-value">8</span>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label class="control-label">Opacity</label>
+            <div class="control-row">
+                <input type="range" id="opacity" min="0" max="100" value="30" step="1">
+                <span id="opacity-value" class="slider-value">0.05</span>
+            </div>
+            <small>Logarithmic scale: more precision at lower values</small>
+        </div>
+        
+        <div class="control-group">
+            <h4>Select a Color</h4>
+            <div class="color-input">
+                <span class="label">Color:</span>
+                <input type="color" id="custom-color" value="#ff0000">
+            </div>
+            
+            <div id="closest-color">
+                <h4>Closest Match:</h4>
+                <div id="winner-display">
+                    <span class="winning-color" style="background-color: #ff0000;"></span>
+                    <span id="winner-name">hotpink</span>
+                    <span id="winner-distance">(Distance: 123.4)</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <div class="color-input">
+                <span class="label">Show RGB Axes:</span>
+                <input type="checkbox" id="show-axes" checked>
+            </div>
+            <div class="color-input">
+                <span class="label">Show Color Cube:</span>
+                <input type="checkbox" id="show-color-space" checked>
+            </div>
+            <div class="color-input">
+                <span class="label">Show Distances:</span>
+                <input type="checkbox" id="show-distances" checked>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <button id="reset-camera">Reset View</button>
+            <button id="show-figment-colors">Show Figment Colors</button>
+        </div>
+    </div>
+
+    <div id="loading">
+        <h3>Generating Color Space...</h3>
+        <p>This may take a few moments depending on sampling density.</p>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // Initialize ThreeJS
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.set(300, 300, 300);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        // Add OrbitControls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(200, 200, 200);
+        scene.add(directionalLight);
+        
+        // Main group for all color space elements
+        const colorSpaceGroup = new THREE.Group();
+        scene.add(colorSpaceGroup);
+        
+        // RGB axes
+        const axesGroup = new THREE.Group();
+        
+        // X-axis (R) - Red
+        const xAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(255, 0, 0)
+        ]);
+        const xAxisMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+        const xAxis = new THREE.Line(xAxisGeometry, xAxisMaterial);
+        axesGroup.add(xAxis);
+        
+        // Y-axis (G) - Green
+        const yAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 255, 0)
+        ]);
+        const yAxisMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+        const yAxis = new THREE.Line(yAxisGeometry, yAxisMaterial);
+        axesGroup.add(yAxis);
+        
+        // Z-axis (B) - Blue
+        const zAxisGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, 255)
+        ]);
+        const zAxisMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 2 });
+        const zAxis = new THREE.Line(zAxisGeometry, zAxisMaterial);
+        axesGroup.add(zAxis);
+        
+        // Labels
+        const createLabel = (text, position, color) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = color;
+            ctx.font = '24px Arial';
+            ctx.fillText(text, 0, 24);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(material);
+            sprite.position.copy(position);
+            sprite.scale.set(32, 16, 1);
+            return sprite;
+        };
+        
+        axesGroup.add(createLabel('R', new THREE.Vector3(265, 0, 0), '#ff0000'));
+        axesGroup.add(createLabel('G', new THREE.Vector3(0, 265, 0), '#00ff00'));
+        axesGroup.add(createLabel('B', new THREE.Vector3(0, 0, 265), '#0000ff'));
+        
+        scene.add(axesGroup);
+        
+        // Create RGB color space wireframe
+        const cubeGeometry = new THREE.BoxGeometry(255, 255, 255);
+        const edges = new THREE.EdgesGeometry(cubeGeometry);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x888888 }));
+        line.position.set(255/2, 255/2, 255/2);
+        colorSpaceGroup.add(line);
+        
+        // Variables for current visualization state
+        let currentVisualization = null;
+        let currentSamplingDensity = 16;
+        let currentPointSize = 8;
+        let currentOpacity = 0.05; // Starting with lower opacity
+        let distanceLines = [];
+        
+        // Target colors
+        const figmentColors = {
+            'hotpink': [255, 105, 180],    // #ff69b4 - Pink elements
+            'darkcyan': [0, 139, 139],     // #008b8b - Green elements
+            'lightgray': [211, 211, 211],  // #d3d3d3 - Silver elements
+            'blue': [0, 93, 186],          // #005DBA - Blue elements
+            'white': [255, 255, 255]       // #ffffff - Background
+        };
+        
+        let figmentColorSpheres = [];
+        let figmentColorsVisible = false;
+        
+        // Generate point cloud visualization
+        function generateColorSpace() {
+            // Show loading indicator
+            document.getElementById('loading').style.display = 'block';
+            
+            // Remove current visualization if it exists
+            if (currentVisualization) {
+                colorSpaceGroup.remove(currentVisualization);
+                if (currentVisualization.geometry) currentVisualization.geometry.dispose();
+                if (currentVisualization.material) currentVisualization.material.dispose();
+            }
+            
+            // Generate point cloud
+            const positions = [];
+            const colors = [];
+            const step = Math.floor(256 / currentSamplingDensity);
+            
+            // Uniform sampling
+            for (let r = 0; r < 256; r += step) {
+                for (let g = 0; g < 256; g += step) {
+                    for (let b = 0; b < 256; b += step) {
+                        positions.push(r, g, b);
+                        colors.push(r/255, g/255, b/255);
+                    }
+                }
+            }
+            
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            
+            const material = new THREE.PointsMaterial({
+                size: currentPointSize,
+                vertexColors: true,
+                transparent: true,
+                opacity: currentOpacity,
+                sizeAttenuation: true
+            });
+            
+            currentVisualization = new THREE.Points(geometry, material);
+            colorSpaceGroup.add(currentVisualization);
+            
+            // Hide loading indicator
+            document.getElementById('loading').style.display = 'none';
+            
+            // Update selected color visualization if a color is selected
+            updateSelectedColor();
+        }
+        
+        // Show/hide figment colors
+        function toggleFigmentColors() {
+            if (figmentColorsVisible) {
+                // Remove figment color spheres
+                figmentColorSpheres.forEach(obj => {
+                    scene.remove(obj);
+                    if (obj.label) scene.remove(obj.label);
+                });
+                figmentColorSpheres = [];
+                figmentColorsVisible = false;
+                document.getElementById('show-figment-colors').textContent = 'Show Figment Colors';
+            } else {
+                // Add figment color spheres
+                Object.entries(figmentColors).forEach(([name, rgb]) => {
+                    const sphereGeometry = new THREE.SphereGeometry(8, 32, 32);
+                    const color = new THREE.Color(`rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`);
+                    const sphereMaterial = new THREE.MeshPhongMaterial({ color: color });
+                    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                    
+                    sphere.position.set(rgb[0], rgb[1], rgb[2]);
+                    sphere.userData = { 
+                        name: name, 
+                        rgb: rgb 
+                    };
+                    
+                    scene.add(sphere);
+                    figmentColorSpheres.push(sphere);
+                    
+                    // Label
+                    const label = createLabel(name, new THREE.Vector3(rgb[0], rgb[1] + 15, rgb[2]), '#ffffff');
+                    sphere.label = label;
+                    scene.add(label);
+                    figmentColorSpheres.push(label);
+                });
+                figmentColorsVisible = true;
+                document.getElementById('show-figment-colors').textContent = 'Hide Figment Colors';
+                
+                // Update distances if color is selected
+                updateSelectedColor();
+            }
+        }
+        
+        // Helper function to convert slider value to opacity using log scale
+        function sliderToOpacity(sliderValue) {
+            // Convert slider (0-100) to opacity (0.001-1) on a log scale
+            const minLog = Math.log(0.001);
+            const maxLog = Math.log(1);
+            const scale = (maxLog - minLog) / 100;
+            return Math.exp(minLog + scale * sliderValue);
+        }
+        
+        // Helper function to convert hex color to RGB
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return [
+                parseInt(result[1], 16),
+                parseInt(result[2], 16),
+                parseInt(result[3], 16)
+            ];
+        }
+        
+        let selectedColorSphere = null;
+        
+        // Update the visualization of the selected color
+        function updateSelectedColor() {
+            const colorHex = document.getElementById('custom-color').value;
+            const rgb = hexToRgb(colorHex);
+            
+            // Remove existing selected color sphere
+            if (selectedColorSphere) {
+                scene.remove(selectedColorSphere);
+            }
+            
+            // Remove existing distance lines
+            distanceLines.forEach(line => scene.remove(line));
+            distanceLines = [];
+            
+            // Create new sphere for selected color
+            const sphereGeometry = new THREE.SphereGeometry(10, 32, 32);
+            const color = new THREE.Color(colorHex);
+            const sphereMaterial = new THREE.MeshPhongMaterial({ color: color });
+            selectedColorSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            selectedColorSphere.position.set(rgb[0], rgb[1], rgb[2]);
+            scene.add(selectedColorSphere);
+            
+            // Show distances if figment colors are visible and distances are enabled
+            if (figmentColorsVisible && document.getElementById('show-distances').checked) {
+                const sourcePoint = new THREE.Vector3(rgb[0], rgb[1], rgb[2]);
+                
+                // Variables to track the closest color
+                let minDistance = Infinity;
+                let closestColorName = "";
+                let closestColorRgb = null;
+                
+                // Draw distance lines to each figment color
+                figmentColorSpheres.forEach(obj => {
+                    if (obj.userData && obj.userData.rgb) {
+                        const targetRgb = obj.userData.rgb;
+                        const targetPoint = new THREE.Vector3(targetRgb[0], targetRgb[1], targetRgb[2]);
+                        
+                        // Calculate Euclidean distance
+                        const distance = Math.sqrt(
+                            Math.pow(rgb[0] - targetRgb[0], 2) +
+                            Math.pow(rgb[1] - targetRgb[1], 2) +
+                            Math.pow(rgb[2] - targetRgb[2], 2)
+                        );
+                        
+                        // Update closest color if this is closer
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            closestColorName = obj.userData.name;
+                            closestColorRgb = targetRgb;
+                        }
+                        
+                        // Create line
+                        const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+                            sourcePoint, targetPoint
+                        ]);
+                        
+                        // Color line based on distance (green->yellow->red)
+                        let lineColor;
+                        const normalizedDist = Math.min(distance / 441.7, 1); // 441.7 is max possible dist in RGB cube
+                        if (normalizedDist < 0.5) {
+                            // Green to Yellow
+                            const t = normalizedDist * 2;
+                            lineColor = new THREE.Color(t, 1, 0);
+                        } else {
+                            // Yellow to Red
+                            const t = (normalizedDist - 0.5) * 2;
+                            lineColor = new THREE.Color(1, 1 - t, 0);
+                        }
+                        
+                        const lineMaterial = new THREE.LineBasicMaterial({ 
+                            color: lineColor,
+                            linewidth: 2 
+                        });
+                        const line = new THREE.Line(lineGeometry, lineMaterial);
+                        scene.add(line);
+                        distanceLines.push(line);
+                        
+                        // Add distance label
+                        const midPoint = new THREE.Vector3().lerpVectors(sourcePoint, targetPoint, 0.5);
+                        
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 64;
+                        canvas.height = 32;
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = "#ffffff";
+                        ctx.font = '12px Arial';
+                        ctx.fillText(distance.toFixed(1), 0, 12);
+                        
+                        const texture = new THREE.CanvasTexture(canvas);
+                        const material = new THREE.SpriteMaterial({ map: texture });
+                        const sprite = new THREE.Sprite(material);
+                        sprite.position.copy(midPoint);
+                        sprite.scale.set(32, 16, 1);
+                        scene.add(sprite);
+                        distanceLines.push(sprite);
+                    }
+                });
+                
+                // Update closest color display
+                if (closestColorName && closestColorRgb) {
+                    const colorElement = document.querySelector('.winning-color');
+                    colorElement.style.backgroundColor = `rgb(${closestColorRgb[0]}, ${closestColorRgb[1]}, ${closestColorRgb[2]})`;
+                    
+                    document.getElementById('winner-name').textContent = closestColorName;
+                    document.getElementById('winner-distance').textContent = `(Distance: ${minDistance.toFixed(1)})`;
+                }
+            } else {
+                // If distances are not shown, still calculate the closest color
+                let minDistance = Infinity;
+                let closestColorName = "";
+                let closestColorRgb = null;
+                
+                // Check each figment color
+                Object.entries(figmentColors).forEach(([name, targetRgb]) => {
+                    // Calculate Euclidean distance
+                    const distance = Math.sqrt(
+                        Math.pow(rgb[0] - targetRgb[0], 2) +
+                        Math.pow(rgb[1] - targetRgb[1], 2) +
+                        Math.pow(rgb[2] - targetRgb[2], 2)
+                    );
+                    
+                    // Update closest color if this is closer
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestColorName = name;
+                        closestColorRgb = targetRgb;
+                    }
+                });
+                
+                // Update closest color display
+                if (closestColorName && closestColorRgb) {
+                    const colorElement = document.querySelector('.winning-color');
+                    colorElement.style.backgroundColor = `rgb(${closestColorRgb[0]}, ${closestColorRgb[1]}, ${closestColorRgb[2]})`;
+                    
+                    document.getElementById('winner-name').textContent = closestColorName;
+                    document.getElementById('winner-distance').textContent = `(Distance: ${minDistance.toFixed(1)})`;
+                }
+            }
+        }
+        
+        // Setup UI controls
+        document.getElementById('sampling-density').addEventListener('input', function(e) {
+            currentSamplingDensity = parseInt(e.target.value);
+            document.getElementById('density-value').textContent = currentSamplingDensity;
+        });
+        
+        document.getElementById('sampling-density').addEventListener('change', generateColorSpace);
+        
+        document.getElementById('point-size').addEventListener('input', function(e) {
+            currentPointSize = parseInt(e.target.value);
+            document.getElementById('size-value').textContent = currentPointSize;
+            
+            // Update point size in real-time
+            if (currentVisualization) {
+                currentVisualization.material.size = currentPointSize;
+                currentVisualization.material.needsUpdate = true;
+            }
+        });
+        
+        // Opacity slider with log scale
+        document.getElementById('opacity').addEventListener('input', function(e) {
+            const sliderValue = parseInt(e.target.value);
+            currentOpacity = sliderToOpacity(sliderValue);
+            document.getElementById('opacity-value').textContent = currentOpacity.toFixed(3);
+            
+            // Update opacity in real-time
+            if (currentVisualization) {
+                currentVisualization.material.opacity = currentOpacity;
+                currentVisualization.material.needsUpdate = true;
+            }
+        });
+        
+        // Color picker
+        document.getElementById('custom-color').addEventListener('input', updateSelectedColor);
+        
+        // Toggle controls
+        document.getElementById('show-axes').addEventListener('change', function() {
+            axesGroup.visible = this.checked;
+        });
+        
+        document.getElementById('show-color-space').addEventListener('change', function() {
+            line.visible = this.checked;
+        });
+        
+        document.getElementById('show-distances').addEventListener('change', updateSelectedColor);
+        
+        document.getElementById('reset-camera').addEventListener('click', function() {
+            camera.position.set(300, 300, 300);
+            camera.lookAt(128, 128, 128);
+            controls.target.set(128, 128, 128);
+        });
+        
+        document.getElementById('show-figment-colors').addEventListener('click', toggleFigmentColors);
+        
+        // Window resize handling
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Initial generation
+        generateColorSpace();
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        animate();
+    </script>
+</body>
+</html>
