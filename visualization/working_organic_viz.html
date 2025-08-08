@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>RGB Color Space Visualization</title>
+    <title>Organic RGB Color Space Visualization</title>
     <style>
         body {
             margin: 0;
@@ -28,7 +28,7 @@
             color: white;
             padding: 10px;
             border-radius: 5px;
-            width: 250px;
+            width: 280px;
             z-index: 100;
         }
         .control-group {
@@ -96,8 +96,8 @@
 </head>
 <body>
     <div id="info">
-        <h2>RGB Color Space Visualization</h2>
-        <p>This visualizes the entire RGB color space as a 3D point cloud.</p>
+        <h2>Organic RGB Color Space</h2>
+        <p>This visualizes the entire RGB color space as a 3D point cloud with organic rendering.</p>
         <p>Each point represents a color at position (R,G,B) and is colored accordingly.</p>
         <p>Controls: Left-click + drag to rotate, scroll to zoom, right-click + drag to pan</p>
     </div>
@@ -108,8 +108,8 @@
         <div class="control-group">
             <label class="control-label">Sampling Density</label>
             <div class="control-row">
-                <input type="range" id="sampling-density" min="4" max="64" value="16" step="4">
-                <span id="density-value" class="slider-value">16</span>
+                <input type="range" id="sampling-density" min="4" max="64" value="60" step="4">
+                <span id="density-value" class="slider-value">60</span>
             </div>
             <small>Higher values = finer sampling, but slower rendering</small>
         </div>
@@ -117,18 +117,54 @@
         <div class="control-group">
             <label class="control-label">Point Size</label>
             <div class="control-row">
-                <input type="range" id="point-size" min="1" max="20" value="8" step="1">
-                <span id="size-value" class="slider-value">8</span>
+                <input type="range" id="point-size" min="1" max="10" value="6.5" step="0.5">
+                <span id="size-value" class="slider-value">6.5</span>
             </div>
         </div>
         
         <div class="control-group">
             <label class="control-label">Opacity</label>
             <div class="control-row">
-                <input type="range" id="opacity" min="0" max="100" value="30" step="1">
-                <span id="opacity-value" class="slider-value">0.05</span>
+                <input type="range" id="opacity" min="0" max="100" value="58" step="1">
+                <span id="opacity-value" class="slider-value">0.063</span>
             </div>
             <small>Logarithmic scale: more precision at lower values</small>
+        </div>
+        
+        <div class="control-group">
+            <label class="control-label">Distribution</label>
+            <select id="distribution-type">
+                <option value="uniform">Uniform Grid</option>
+                <option value="jittered" selected>Jittered Grid</option>
+                <option value="galaxy">Galaxy Clusters</option>
+                <option value="noise">Perlin Noise</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label class="control-label">Jitter Amount</label>
+            <div class="control-row">
+                <input type="range" id="jitter-amount" min="0" max="1" value="0.85" step="0.05">
+                <span id="jitter-value" class="slider-value">0.85</span>
+            </div>
+            <small>Higher = more random positions</small>
+        </div>
+        
+        <div class="control-group">
+            <label class="control-label">Noise Scale</label>
+            <div class="control-row">
+                <input type="range" id="noise-scale" min="0.001" max="0.05" value="0.01" step="0.001">
+                <span id="noise-scale-value" class="slider-value">0.01</span>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label class="control-label">Noise Threshold</label>
+            <div class="control-row">
+                <input type="range" id="noise-threshold" min="0" max="1" value="0.55" step="0.05">
+                <span id="noise-threshold-value" class="slider-value">0.55</span>
+            </div>
+            <small>Higher = more sparse distribution</small>
         </div>
         
         <div class="control-group">
@@ -161,6 +197,14 @@
                 <span class="label">Show Distances:</span>
                 <input type="checkbox" id="show-distances" checked>
             </div>
+            <div class="color-input">
+                <span class="label">Glow Effect:</span>
+                <input type="checkbox" id="show-glow" checked>
+            </div>
+            <div class="color-input">
+                <span class="label">Additive Blend:</span>
+                <input type="checkbox" id="use-additive" checked>
+            </div>
         </div>
         
         <div class="control-group">
@@ -178,12 +222,105 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
 
     <script>
+        // Perlin Noise implementation
+        class Noise {
+            constructor(seed = 0) {
+                this.p = new Uint8Array(512);
+                this.seed = seed;
+                
+                // Initialize the permutation array
+                const permutation = new Uint8Array(256);
+                for (let i = 0; i < 256; i++) {
+                    permutation[i] = i;
+                }
+                
+                // Randomize the permutation array using the seed
+                let seedValue = seed;
+                for (let i = 255; i > 0; i--) {
+                    seedValue = (seedValue * 16807) % 2147483647;
+                    const j = Math.floor((seedValue / 2147483647) * (i + 1));
+                    [permutation[i], permutation[j]] = [permutation[j], permutation[i]];
+                }
+                
+                // Fill the expanded permutation array
+                for (let i = 0; i < 512; i++) {
+                    this.p[i] = permutation[i & 255];
+                }
+            }
+            
+            // 3D Perlin noise
+            noise(x, y, z) {
+                // Find unit cube that contains the point
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+                const Z = Math.floor(z) & 255;
+                
+                // Find relative x, y, z of point in cube
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                z -= Math.floor(z);
+                
+                // Compute fade curves for each of x, y, z
+                const u = this.fade(x);
+                const v = this.fade(y);
+                const w = this.fade(z);
+                
+                // Hash coordinates of the 8 cube corners
+                const A = this.p[X] + Y;
+                const AA = this.p[A] + Z;
+                const AB = this.p[A + 1] + Z;
+                const B = this.p[X + 1] + Y;
+                const BA = this.p[B] + Z;
+                const BB = this.p[B + 1] + Z;
+                
+                // Add blended results from 8 corners of cube
+                return this.lerp(w,
+                    this.lerp(v,
+                        this.lerp(u,
+                            this.grad(this.p[AA], x, y, z),
+                            this.grad(this.p[BA], x - 1, y, z)
+                        ),
+                        this.lerp(u,
+                            this.grad(this.p[AB], x, y - 1, z),
+                            this.grad(this.p[BB], x - 1, y - 1, z)
+                        )
+                    ),
+                    this.lerp(v,
+                        this.lerp(u,
+                            this.grad(this.p[AA + 1], x, y, z - 1),
+                            this.grad(this.p[BA + 1], x - 1, y, z - 1)
+                        ),
+                        this.lerp(u,
+                            this.grad(this.p[AB + 1], x, y - 1, z - 1),
+                            this.grad(this.p[BB + 1], x - 1, y - 1, z - 1)
+                        )
+                    )
+                );
+            }
+            
+            fade(t) {
+                return t * t * t * (t * (t * 6 - 15) + 10);
+            }
+            
+            lerp(t, a, b) {
+                return a + t * (b - a);
+            }
+            
+            grad(hash, x, y, z) {
+                // Convert low 4 bits of hash into 12 gradient directions
+                const h = hash & 15;
+                const u = h < 8 ? x : y;
+                const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+                return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+            }
+        }
+        
         // Initialize ThreeJS
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x111111);
         
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-        camera.position.set(300, 300, 300);
+        camera.position.set(500, 500, 500);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -265,13 +402,54 @@
         const edges = new THREE.EdgesGeometry(cubeGeometry);
         const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x888888 }));
         line.position.set(255/2, 255/2, 255/2);
-        colorSpaceGroup.add(line);
+        // Removed from scene by default
+        // colorSpaceGroup.add(line);
+        
+        // Create point texture for halos
+        function createPointTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            
+            const context = canvas.getContext('2d');
+            
+            // Draw outer halo (bigger, more transparent)
+            context.globalAlpha = 0.3;
+            context.filter = 'blur(16px)';
+            context.fillStyle = 'white';
+            context.beginPath();
+            context.arc(64, 64, 40, 0, 2*Math.PI);
+            context.fill();
+            
+            // Draw inner core (smaller, more opaque)
+            context.globalAlpha = 1.0;
+            context.filter = 'blur(7px)';
+            context.fillStyle = 'white';
+            context.beginPath();
+            context.arc(64, 64, 16, 0, 2*Math.PI);
+            context.fill();
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            return texture;
+        }
+        
+        const pointTexture = createPointTexture();
+        
+        // Initialize noise generator
+        const perlinNoise = new Noise(Math.random() * 100000);
         
         // Variables for current visualization state
         let currentVisualization = null;
-        let currentSamplingDensity = 16;
-        let currentPointSize = 8;
-        let currentOpacity = 0.05; // Starting with lower opacity
+        let currentSamplingDensity = 60;
+        let currentPointSize = 6.5;
+        let currentOpacity = 0.063;
+        let currentDistribution = 'jittered';
+        let noiseScale = 0.01;
+        let noiseThreshold = 0.55;
+        let jitterAmount = 0.85;
+        let useGlow = true;
+        let useAdditiveBlending = true;
         let distanceLines = [];
         
         // Target colors
@@ -298,25 +476,113 @@
                 if (currentVisualization.material) currentVisualization.material.dispose();
             }
             
-            // Generate point cloud
+            // Sample points in RGB space based on selected distribution
             const positions = [];
             const colors = [];
             const step = Math.floor(256 / currentSamplingDensity);
+            let pointCount = 0;
             
-            // Uniform sampling
-            for (let r = 0; r < 256; r += step) {
-                for (let g = 0; g < 256; g += step) {
-                    for (let b = 0; b < 256; b += step) {
-                        positions.push(r, g, b);
-                        colors.push(r/255, g/255, b/255);
+            if (currentDistribution === 'uniform') {
+                // Uniform grid sampling
+                for (let r = 0; r < 256; r += step) {
+                    for (let g = 0; g < 256; g += step) {
+                        for (let b = 0; b < 256; b += step) {
+                            positions.push(r, g, b);
+                            colors.push(r/255, g/255, b/255);
+                            pointCount++;
+                        }
+                    }
+                }
+            } else if (currentDistribution === 'jittered') {
+                // Jittered grid to break up moiré patterns
+                const halfStep = step / 2;
+                const jitterScale = step * jitterAmount;
+                
+                for (let r = 0; r < 256; r += step) {
+                    for (let g = 0; g < 256; g += step) {
+                        for (let b = 0; b < 256; b += step) {
+                            // Add random jitter to each coordinate
+                            const jitterR = r + (Math.random() * 2 - 1) * jitterScale;
+                            const jitterG = g + (Math.random() * 2 - 1) * jitterScale;
+                            const jitterB = b + (Math.random() * 2 - 1) * jitterScale;
+                            
+                            // Clamp values to valid RGB range
+                            const finalR = Math.max(0, Math.min(255, jitterR));
+                            const finalG = Math.max(0, Math.min(255, jitterG));
+                            const finalB = Math.max(0, Math.min(255, jitterB));
+                            
+                            positions.push(finalR, finalG, finalB);
+                            colors.push(finalR/255, finalG/255, finalB/255);
+                            pointCount++;
+                        }
+                    }
+                }
+            } else if (currentDistribution === 'noise') {
+                // Perlin noise-based sampling
+                for (let r = 0; r < 256; r += step) {
+                    for (let g = 0; g < 256; g += step) {
+                        for (let b = 0; b < 256; b += step) {
+                            // Calculate noise value for this position
+                            const noise = perlinNoise.noise(r * noiseScale, g * noiseScale, b * noiseScale);
+                            
+                            // Only include point if noise is above threshold
+                            if (noise > noiseThreshold) {
+                                positions.push(r, g, b);
+                                colors.push(r/255, g/255, b/255);
+                                pointCount++;
+                            }
+                        }
+                    }
+                }
+            } else if (currentDistribution === 'galaxy') {
+                // Galaxy-like distribution with spiral arms
+                const center = new THREE.Vector3(128, 128, 128); // Center of RGB cube
+                const armCount = 3; // Number of spiral arms
+                const maxRadius = 220; // Maximum radius
+                const particlesPerArm = Math.pow(currentSamplingDensity, 3) / armCount;
+                
+                // Helper function to generate a random value with Gaussian distribution
+                function gaussianRandom(mean = 0, std = 1) {
+                    const u = 1 - Math.random(); // Converting [0,1) to (0,1]
+                    const v = Math.random();
+                    const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+                    return z * std + mean;
+                }
+                
+                // Generate points for each arm
+                for (let arm = 0; arm < armCount; arm++) {
+                    for (let i = 0; i < particlesPerArm; i++) {
+                        // Random distance from center (biased towards center)
+                        const distance = Math.random() * Math.random() * maxRadius;
+                        
+                        // Angle based on distance (creates spiral)
+                        const angle = (distance / 20) + (2 * Math.PI * arm / armCount);
+                        
+                        // Spread points around the arm based on distance from center
+                        const spread = 0.1 + (0.05 * (distance / maxRadius));
+                        
+                        // Calculate point position around the spiral
+                        const x = center.x + distance * Math.cos(angle) + gaussianRandom(0, spread * distance);
+                        const y = center.y + distance * Math.sin(angle) + gaussianRandom(0, spread * distance);
+                        const z = center.z + gaussianRandom(0, 40); // Some vertical spread
+                        
+                        // Add point if it's within the RGB cube bounds
+                        if (x >= 0 && x <= 255 && y >= 0 && y <= 255 && z >= 0 && z <= 255) {
+                            positions.push(x, y, z);
+                            colors.push(x/255, y/255, z/255);
+                            pointCount++;
+                        }
                     }
                 }
             }
+            
+            console.log(`Generated ${pointCount} points with distribution: ${currentDistribution}`);
             
             const geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
             
+            // Create point material with glow effect if enabled
             const material = new THREE.PointsMaterial({
                 size: currentPointSize,
                 vertexColors: true,
@@ -324,6 +590,16 @@
                 opacity: currentOpacity,
                 sizeAttenuation: true
             });
+            
+            // Apply glow texture and blending if enabled
+            if (useGlow) {
+                material.map = pointTexture;
+            }
+            
+            if (useAdditiveBlending) {
+                material.blending = THREE.AdditiveBlending;
+                material.depthTest = false;
+            }
             
             currentVisualization = new THREE.Points(geometry, material);
             colorSpaceGroup.add(currentVisualization);
@@ -341,7 +617,6 @@
                 // Remove figment color spheres
                 figmentColorSpheres.forEach(obj => {
                     scene.remove(obj);
-                    if (obj.label) scene.remove(obj.label);
                 });
                 figmentColorSpheres = [];
                 figmentColorsVisible = false;
@@ -351,7 +626,11 @@
                 Object.entries(figmentColors).forEach(([name, rgb]) => {
                     const sphereGeometry = new THREE.SphereGeometry(8, 32, 32);
                     const color = new THREE.Color(`rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`);
-                    const sphereMaterial = new THREE.MeshPhongMaterial({ color: color });
+                    const sphereMaterial = new THREE.MeshPhongMaterial({ 
+                        color: color,
+                        emissive: color,
+                        emissiveIntensity: 0.2
+                    });
                     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
                     
                     sphere.position.set(rgb[0], rgb[1], rgb[2]);
@@ -362,12 +641,6 @@
                     
                     scene.add(sphere);
                     figmentColorSpheres.push(sphere);
-                    
-                    // Label
-                    const label = createLabel(name, new THREE.Vector3(rgb[0], rgb[1] + 15, rgb[2]), '#ffffff');
-                    sphere.label = label;
-                    scene.add(label);
-                    figmentColorSpheres.push(label);
                 });
                 figmentColorsVisible = true;
                 document.getElementById('show-figment-colors').textContent = 'Hide Figment Colors';
@@ -415,7 +688,11 @@
             // Create new sphere for selected color
             const sphereGeometry = new THREE.SphereGeometry(10, 32, 32);
             const color = new THREE.Color(colorHex);
-            const sphereMaterial = new THREE.MeshPhongMaterial({ color: color });
+            const sphereMaterial = new THREE.MeshPhongMaterial({ 
+                color: color,
+                emissive: color,
+                emissiveIntensity: 0.3
+            });
             selectedColorSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
             selectedColorSphere.position.set(rgb[0], rgb[1], rgb[2]);
             scene.add(selectedColorSphere);
@@ -547,11 +824,11 @@
         document.getElementById('sampling-density').addEventListener('change', generateColorSpace);
         
         document.getElementById('point-size').addEventListener('input', function(e) {
-            currentPointSize = parseInt(e.target.value);
-            document.getElementById('size-value').textContent = currentPointSize;
+            currentPointSize = parseFloat(e.target.value);
+            document.getElementById('size-value').textContent = currentPointSize.toFixed(1);
             
             // Update point size in real-time
-            if (currentVisualization) {
+            if (currentVisualization && currentVisualization.material) {
                 currentVisualization.material.size = currentPointSize;
                 currentVisualization.material.needsUpdate = true;
             }
@@ -564,9 +841,51 @@
             document.getElementById('opacity-value').textContent = currentOpacity.toFixed(3);
             
             // Update opacity in real-time
-            if (currentVisualization) {
+            if (currentVisualization && currentVisualization.material) {
                 currentVisualization.material.opacity = currentOpacity;
                 currentVisualization.material.needsUpdate = true;
+            }
+        });
+        
+        // Distribution type selector
+        document.getElementById('distribution-type').addEventListener('change', function(e) {
+            currentDistribution = e.target.value;
+            generateColorSpace();
+        });
+        
+        // Jitter amount control
+        document.getElementById('jitter-amount').addEventListener('input', function(e) {
+            jitterAmount = parseFloat(e.target.value);
+            document.getElementById('jitter-value').textContent = jitterAmount.toFixed(2);
+        });
+        
+        document.getElementById('jitter-amount').addEventListener('change', function() {
+            if (currentDistribution === 'jittered') {
+                generateColorSpace();
+            }
+        });
+        
+        // Noise scale control
+        document.getElementById('noise-scale').addEventListener('input', function(e) {
+            noiseScale = parseFloat(e.target.value);
+            document.getElementById('noise-scale-value').textContent = noiseScale.toFixed(3);
+        });
+        
+        document.getElementById('noise-scale').addEventListener('change', function() {
+            if (currentDistribution === 'noise') {
+                generateColorSpace();
+            }
+        });
+        
+        // Noise threshold control
+        document.getElementById('noise-threshold').addEventListener('input', function(e) {
+            noiseThreshold = parseFloat(e.target.value);
+            document.getElementById('noise-threshold-value').textContent = noiseThreshold.toFixed(2);
+        });
+        
+        document.getElementById('noise-threshold').addEventListener('change', function() {
+            if (currentDistribution === 'noise') {
+                generateColorSpace();
             }
         });
         
@@ -579,13 +898,30 @@
         });
         
         document.getElementById('show-color-space').addEventListener('change', function() {
-            line.visible = this.checked;
+            if (this.checked) {
+                colorSpaceGroup.add(line);
+            } else {
+                colorSpaceGroup.remove(line);
+            }
         });
         
         document.getElementById('show-distances').addEventListener('change', updateSelectedColor);
         
+        document.getElementById('show-glow').addEventListener('change', function() {
+            useGlow = this.checked;
+            if (currentVisualization && currentVisualization.material) {
+                currentVisualization.material.map = useGlow ? pointTexture : null;
+                currentVisualization.material.needsUpdate = true;
+            }
+        });
+        
+        document.getElementById('use-additive').addEventListener('change', function() {
+            useAdditiveBlending = this.checked;
+            generateColorSpace(); // Need to recreate for blending mode change
+        });
+        
         document.getElementById('reset-camera').addEventListener('click', function() {
-            camera.position.set(300, 300, 300);
+            camera.position.set(500, 500, 500);
             camera.lookAt(128, 128, 128);
             controls.target.set(128, 128, 128);
         });
