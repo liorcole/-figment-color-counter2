@@ -191,7 +191,7 @@
             </div>
             <div class="color-input">
                 <span class="label">Show Color Cube:</span>
-                <input type="checkbox" id="show-color-space" checked>
+                <input type="checkbox" id="show-color-space">
             </div>
             <div class="color-input">
                 <span class="label">Show Distances:</span>
@@ -210,6 +210,18 @@
         <div class="control-group">
             <button id="reset-camera">Reset View</button>
             <button id="show-figment-colors">Show Figment Colors</button>
+        </div>
+        
+        <div class="control-group">
+            <h4>Visual Effects</h4>
+            <div class="color-input">
+                <span class="label">Neon Glow:</span>
+                <input type="checkbox" id="neon-glow" checked>
+            </div>
+            <div class="color-input">
+                <span class="label">Fog Effect:</span>
+                <input type="checkbox" id="show-fog" checked>
+            </div>
         </div>
     </div>
 
@@ -322,8 +334,12 @@
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.set(500, 500, 500);
         
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
         document.body.appendChild(renderer.domElement);
         
         // Add OrbitControls
@@ -332,12 +348,16 @@
         controls.dampingFactor = 0.05;
         
         // Add lights
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
         scene.add(ambientLight);
         
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
         directionalLight.position.set(200, 200, 200);
+        directionalLight.castShadow = true;
         scene.add(directionalLight);
+        
+        // Add fog for atmosphere
+        scene.fog = new THREE.FogExp2(0x111111, 0.0008);
         
         // Main group for all color space elements
         const colorSpaceGroup = new THREE.Group();
@@ -395,6 +415,8 @@
         axesGroup.add(createLabel('G', new THREE.Vector3(0, 265, 0), '#00ff00'));
         axesGroup.add(createLabel('B', new THREE.Vector3(0, 0, 265), '#0000ff'));
         
+        // Hide regular axes by default since neon glow is on
+        axesGroup.visible = false;
         scene.add(axesGroup);
         
         // Create RGB color space wireframe
@@ -451,6 +473,8 @@
         let useGlow = true;
         let useAdditiveBlending = true;
         let distanceLines = [];
+        let neonGlow = true;
+        let showFog = true;
         
         // Target colors
         const figmentColors = {
@@ -614,15 +638,15 @@
         // Show/hide figment colors
         function toggleFigmentColors() {
             if (figmentColorsVisible) {
-                // Remove figment color spheres
+                // Remove figment color spheres from colorSpaceGroup
                 figmentColorSpheres.forEach(obj => {
-                    scene.remove(obj);
+                    colorSpaceGroup.remove(obj);
                 });
                 figmentColorSpheres = [];
                 figmentColorsVisible = false;
                 document.getElementById('show-figment-colors').textContent = 'Show Figment Colors';
             } else {
-                // Add figment color spheres
+                // Add figment color spheres to colorSpaceGroup so they rotate
                 Object.entries(figmentColors).forEach(([name, rgb]) => {
                     const sphereGeometry = new THREE.SphereGeometry(8, 32, 32);
                     const color = new THREE.Color(`rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`);
@@ -639,7 +663,7 @@
                         rgb: rgb 
                     };
                     
-                    scene.add(sphere);
+                    colorSpaceGroup.add(sphere);
                     figmentColorSpheres.push(sphere);
                 });
                 figmentColorsVisible = true;
@@ -894,7 +918,9 @@
         
         // Toggle controls
         document.getElementById('show-axes').addEventListener('change', function() {
-            axesGroup.visible = this.checked;
+            if (!neonGlow) {
+                axesGroup.visible = this.checked;
+            }
         });
         
         document.getElementById('show-color-space').addEventListener('change', function() {
@@ -938,12 +964,112 @@
         // Initial generation
         generateColorSpace();
         
+        
+        // Group for all neon axes
+        let neonAxesGroup = null;
+        
+        // Create enhanced neon axes
+        function createNeonAxes() {
+            // Remove old axes group
+            if (neonAxesGroup) {
+                scene.remove(neonAxesGroup);
+            }
+            
+            if (!neonGlow) return;
+            
+            // Create a group to hold all neon axes
+            neonAxesGroup = new THREE.Group();
+            
+            // Create glowing cylinders for axes
+            const createGlowingAxis = (start, end, color, emissiveColor) => {
+                const direction = new THREE.Vector3().subVectors(end, start);
+                const length = direction.length();
+                const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                
+                // Inner bright core
+                const coreGeometry = new THREE.CylinderGeometry(1, 1, length, 8);
+                const coreMaterial = new THREE.MeshPhongMaterial({
+                    color: color,
+                    emissive: emissiveColor,
+                    emissiveIntensity: 2,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const core = new THREE.Mesh(coreGeometry, coreMaterial);
+                
+                // Outer glow
+                const glowGeometry = new THREE.CylinderGeometry(3, 3, length, 8);
+                const glowMaterial = new THREE.MeshPhongMaterial({
+                    color: emissiveColor,
+                    emissive: emissiveColor,
+                    emissiveIntensity: 1,
+                    transparent: true,
+                    opacity: 0.2,
+                    side: THREE.DoubleSide
+                });
+                const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+                
+                // Position and orient
+                const group = new THREE.Group();
+                group.add(core);
+                group.add(glow);
+                group.position.copy(midpoint);
+                
+                // Align with direction
+                const up = new THREE.Vector3(0, 1, 0);
+                const axis = new THREE.Vector3().crossVectors(up, direction.normalize()).normalize();
+                const angle = Math.acos(up.dot(direction.normalize()));
+                group.setRotationFromAxisAngle(axis, angle);
+                
+                return group;
+            };
+            
+            // Create each axis with glow
+            const xNeon = createGlowingAxis(
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(255, 0, 0),
+                0xff0000, 0xff0044
+            );
+            
+            const yNeon = createGlowingAxis(
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 255, 0),
+                0x00ff00, 0x00ff44
+            );
+            
+            const zNeon = createGlowingAxis(
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 0, 255),
+                0x0000ff, 0x0044ff
+            );
+            
+            neonAxesGroup.add(xNeon);
+            neonAxesGroup.add(yNeon);
+            neonAxesGroup.add(zNeon);
+            scene.add(neonAxesGroup);
+        }
+        
+        // Initialize visual effects
+        createNeonAxes();
+        
         // Animation loop
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
             renderer.render(scene, camera);
         }
+        
+        // UI controls for new features
+        document.getElementById('neon-glow').addEventListener('change', function() {
+            neonGlow = this.checked;
+            createNeonAxes();
+            axesGroup.visible = !neonGlow && document.getElementById('show-axes').checked;
+        });
+        
+        document.getElementById('show-fog').addEventListener('change', function() {
+            showFog = this.checked;
+            scene.fog = showFog ? new THREE.FogExp2(0x111111, 0.0008) : null;
+        });
         
         animate();
     </script>
