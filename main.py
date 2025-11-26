@@ -32,26 +32,29 @@ from PIL import Image
 import webcolors
 from tqdm import tqdm
 
-def get_color_name(rgb_triplet, target_colors):
+def get_color_weights(rgb_triplet, target_colors, epsilon=1e-6):
     """
-    Find the closest color from target_colors to the given RGB triplet.
-    
-    Args:
-        rgb_triplet: A tuple of (R, G, B) values
-        target_colors: A dictionary of color_name: rgb_tuple pairs
-        
-    Returns:
-        The name of the closest color
+    Return a soft assignment of this RGB triplet to each target color.
+
+    For each target color we compute the squared Euclidean distance in RGB space,
+    then convert distances into weights (closer colors get higher weight).
+    Weights sum to 1.0.
     """
-    min_distance = float('inf')
-    closest_color = None
+    # Compute squared distances to each target color
+    distances = {}
     for color_name, target_rgb in target_colors.items():
-        # Calculate Euclidean distance in RGB space
-        dist = sum([(a - b) ** 2 for a, b in zip(rgb_triplet, target_rgb)])
-        if dist < min_distance:
-            min_distance = dist
-            closest_color = color_name
-    return closest_color
+        dist = sum((a - b) ** 2 for a, b in zip(rgb_triplet, target_rgb))
+        distances[color_name] = dist
+
+    # Exact match: give 100% to that color
+    for color_name, dist in distances.items():
+        if dist == 0:
+            return {c: (1.0 if c == color_name else 0.0) for c in target_colors}
+
+    # Inverse-distance weighting
+    inv_dists = {c: 1.0 / (d + epsilon) for c, d in distances.items()}
+    total = sum(inv_dists.values())
+    return {c: w / total for c, w in inv_dists.items()}
 
 def analyze_image_colors(image_path, target_colors):
     """
@@ -75,20 +78,22 @@ def analyze_image_colors(image_path, target_colors):
     unique, counts = np.unique(data.reshape(-1, data.shape[-1]), axis=0, return_counts=True)
     unique = [tuple(color) for color in unique]
 
-    # Initialize counters for our target colors
-    color_counts = {color: 0 for color in target_colors}
+    # Initialize counters for our target colors (as floats now)
+    color_counts = {color: 0.0 for color in target_colors}
     total_pixels = 0
 
-    # Map each pixel to its closest target color
+    # Map each unique pixel color to a weighted combination of target colors
     for color, count in zip(unique, counts):
-        color_name = get_color_name(color, target_colors)
-        if color_name in target_colors:
-            color_counts[color_name] += count
+        weights = get_color_weights(color, target_colors)
+        for color_name, w in weights.items():
+            color_counts[color_name] += count * w
         total_pixels += count
 
     # Calculate percentages with six decimal precision
-    color_percentages = {color + '_percent': "{:.6f}".format((count / total_pixels)) 
-                         for color, count in color_counts.items()}
+    color_percentages = {
+        color + '_percent': "{:.6f}".format(color_counts[color] / total_pixels)
+        for color in target_colors
+    }
     return color_counts, color_percentages
 
 def process_directory(directory_path, target_colors, output_csv):
