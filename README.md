@@ -1,5 +1,25 @@
 # Figment Pixel Color Counter
 
+## !!FORK UPDATE!! Hybrid Color Weighting For Anti-aliasing (edits in get_color_weights() in main.py)
+
+The original script had each pixel operating under a sort of "winner takes all" system, where a given anti-aliasing pixel would assume full pigment of its closest color based on the euclidean distance in RGB space.
+
+This update handles anti-aliasing pixels by representing them more accurately with the specific breakdown of colors each pixel is composed of. For example for a pixel that is 60% pink, 30% blue, 10% white, it would be represented with this breakdown rather than assuing 100% pink.
+
+How this actually happens:
+#### 1. Compute distances in RGB space
+For each pixel’s RGB triplet, the script calculates its squared Euclidean distance to every target color in the palette:
+d = (R - Rᵢ)² + (G - Gᵢ)² + (B - Bᵢ)²
+#### 2. Invert distances to derive contribution weights
+Each distance is inverted so that closer colors produce larger values:
+wᵢ = 1 / (dᵢ + ε)
+#### 3. Normalize weights into percentages
+All weights are divided by their sum so they form a distribution that adds up to 1.0, effectively turning proximity into fractional color ownership:
+#### 4. Apply percentages to pixel counts
+The resulting proportions are multiplied by how many times that RGB value occurs in the image, incrementally building totals for each target color based on partial rather than absolute membership.
+
+## !!END FORK UPDATE!!
+
 A Python tool for calculating the exact percentage of specific colors in images. This tool was developed for the tabletop game [Figment](https://www.cmyk.games/products/figment), where players guess the percentage of different colors on cards featuring abstract designs.
 
 ## Background
